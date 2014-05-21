@@ -2,18 +2,18 @@
 # tasks file for mysql-replication-slave
 - name: Install required packages
   apt:
-    pkg="{{ item }}"
-    state=latest
+    pkg: "{{ item }}"
+    state: latest
   with_items:
     - mysql-server
     - python-mysqldb
 
 - name: Set slave server ID
   lineinfile:
-    dest=/etc/mysql/my.cnf
-    insertafter="\[mysqld\]"
-    line="{{ item }}"
-    state=present
+    dest: /etc/mysql/my.cnf
+    insertafter: "\[mysqld\]"
+    line: "{{ item }}"
+    state: present
   with_items:
     - "relay-log=mysqld-relay-bin"
     - "report-host={{ ansible_hostname }}"
@@ -21,5 +21,5 @@
 
 - name: Leave MySQL server stopped
   service:
-    name=mysql
-    state=stopped
+    name: mysql
+    state: stopped
