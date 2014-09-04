@@ -11,7 +11,7 @@
 - name: Set slave server ID
   lineinfile:
     dest: /etc/mysql/my.cnf
-    insertafter: "\[mysqld\]"
+    insertafter: '\[mysqld\]'
     line: "{{ item }}"
     state: present
   with_items:
@@ -23,3 +23,91 @@
   service:
     name: mysql
     state: stopped
+
+- name: Get replication info
+  mysql_replication:
+    login_user: "{{ replication_user }}"
+    login_password: "{{ replication_password }}"
+    login_host: "{{ master_host }}"
+    mode: getmaster
+  register: results
+
+- name: upload database dumps
+  copy:
+    dest: /tmp
+    src: "{{ control_dump_location }}{{ item }}.dmp.gz"
+  with_items:
+    - "{{ databases }}"
+
+- name: Move the data directory to the data disk
+  lineinfile:
+    dest: /etc/mysql/my.cnf
+    regexp: "^datadir.*"
+    line: "datadir = {{ datadir }}"
+    state: present
+
+- name: Initialize data directory
+  shell: "mysql_install_db --datadir={{ datadir }}"
+
+- name: Get debian config file
+  fetch:
+    dest: "/tmp/{{ ansible_hostname }}/"
+    src: /etc/mysql/debian.cnf
+    flat: yes
+
+- name: Manually start MySQL without replication
+  shell: mysqld_safe --skip-slave-start
+  async: 120
+  poll: 0
+
+- name: Wait for mysql
+  wait_for:
+    port: 3306
+
+- name: create debian user
+  mysql_user:
+    login_user: "{{ master_user }}"
+    login_password: "{{ master_password }}"
+    name: "{{ lookup('pipe', 'grep user /tmp/%s/debian.cnf | head -n 1 | awk \\'{ print $3 }\\'' % ansible_hostname) }}"
+    password: "{{ lookup('pipe', 'grep password /tmp/%s/debian.cnf | head -n 1 | awk \\'{ print $3 }\\'' % ansible_hostname) }}"
+    priv: '*.*:ALL,GRANT'
+    state: present
+
+- name: create target database
+  mysql_db:
+    login_user: "{{ master_user }}"
+    login_password: "{{ master_password }}"
+    login_unix_socket: "/var/run/mysqld/mysqld.sock"
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - "{{ databases }}"
+
+- name: import database dumps
+  mysql_db:
+    login_user: root
+    login_password: ""
+    login_unix_socket: "/var/run/mysqld/mysqld.sock"
+    name: "{{ item }}"
+    state: import
+    target: "/tmp/{{ item }}.dmp.gz"
+  with_items:
+    - "{{ databases }}"
+
+- name: set up replication
+  mysql_replication:
+    mode: changemaster
+    master_host: "{{ master_host }}"
+    master_log_file: "{{ results['File'] }}"
+    master_log_pos: "{{ results['Position'] }}"
+    master_user: "{{ replication_user }}"
+    master_password: "{{ replication_password }}"
+
+- name: start replication
+  mysql_replication:
+    mode: startslave
+
+- name: Restart MySQL
+  service:
+    name: mysql
+    state: restarted
