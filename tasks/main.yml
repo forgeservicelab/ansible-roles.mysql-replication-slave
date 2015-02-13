@@ -95,7 +95,7 @@
     - "{{ databases }}"
 
 - name: set up replication
-  mysql_replication:
+  mysql_replication_patch:
     mode: changemaster
     master_host: "{{ master_host }}"
     master_log_file: "{{ results['File'] }}"
